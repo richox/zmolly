@@ -38,6 +38,37 @@
 #include <thread>
 
 /*******************************************************************************
+ * Portable CLZ
+ ******************************************************************************/
+#if defined(__GNUC__)
+#   define clz(x) __builtin_clz(x)
+#elif defined(_MSC_VER)
+#   include <intrin.h>
+    uint32_t __inline clz( uint32_t value ) {
+        DWORD leading_zero = 0;
+        _BitScanReverse( &leading_zero, value );
+        return 31 - leading_zero;
+    }
+#else
+    static uint32_t inline popcnt( uint32_t x ) {
+        x -= ((x >> 1) & 0x55555555);
+        x = (((x >> 2) & 0x33333333) + (x & 0x33333333));
+        x = (((x >> 4) + x) & 0x0f0f0f0f);
+        x += (x >> 8);
+        x += (x >> 16);
+        return x & 0x0000003f;
+    }
+    static uint32_t inline clz( uint32_t x ) {
+        x |= (x >> 1);
+        x |= (x >> 2);
+        x |= (x >> 4);
+        x |= (x >> 8);
+        x |= (x >> 16);
+        return 32 - popcnt(x);
+    }
+#endif
+
+/*******************************************************************************
  * Allocator
  ******************************************************************************/
 static const int ALLOCATOR_POOLSIZE = 8192;
@@ -497,7 +528,11 @@ struct sparse_model_t {  // sparse model types, use for long context
         }
         return;
     }
-} __attribute__((__aligned__(128)));
+} 
+#ifndef _MSC_VER
+__attribute__((__aligned__(128)))
+#endif
+;
 
 // main ppm-model type
 struct ppm_model_t {
@@ -530,8 +565,8 @@ struct ppm_model_t {
     }
 
     inline see_model_t* current_see(sparse_model_t* o4) {
-        static const auto log2i = [](uint32_t x) {
-            return (31 - __builtin_clz((x << 1) | 0x01));
+        static const auto log2i = [](uint32_t x) -> int {
+            return (31 - clz((x << 1) | 0x01));
         };
 
         if (o4->m_cnt == 0) {

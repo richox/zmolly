@@ -36,6 +36,38 @@
 #include <bitset>
 #include <vector>
 #include <thread>
+#include <sstream>
+
+/*******************************************************************************
+ * Portable CLZ
+ ******************************************************************************/
+#if defined(__GNUC__)
+#   define clz(x) __builtin_clz(x)
+#elif defined(_MSC_VER)
+#   include <intrin.h>
+    uint32_t __inline clz( uint32_t value ) {
+        DWORD leading_zero = 0;
+        _BitScanReverse( &leading_zero, value );
+        return 31 - leading_zero;
+    }
+#else
+    static uint32_t inline popcnt( uint32_t x ) {
+        x -= ((x >> 1) & 0x55555555);
+        x = (((x >> 2) & 0x33333333) + (x & 0x33333333));
+        x = (((x >> 4) + x) & 0x0f0f0f0f);
+        x += (x >> 8);
+        x += (x >> 16);
+        return x & 0x0000003f;
+    }
+    static uint32_t inline clz( uint32_t x ) {
+        x |= (x >> 1);
+        x |= (x >> 2);
+        x |= (x >> 4);
+        x |= (x >> 8);
+        x |= (x >> 16);
+        return 32 - popcnt(x);
+    }
+#endif
 
 /*******************************************************************************
  * Allocator
@@ -497,7 +529,11 @@ struct sparse_model_t {  // sparse model types, use for long context
         }
         return;
     }
-} __attribute__((__aligned__(128)));
+} 
+#ifndef _MSC_VER
+__attribute__((__aligned__(128)))
+#endif
+;
 
 // main ppm-model type
 struct ppm_model_t {
@@ -511,6 +547,7 @@ struct ppm_model_t {
     uint8_t m_sse_ch_context;
     uint8_t m_sse_last_esc;
     std::vector<see_model_t> m_see;
+    see_model_t see_01;
 
     ppm_model_t() {
         m_o4_buckets.resize(PPM_O4_BUCKET_SIZE);
@@ -527,15 +564,16 @@ struct ppm_model_t {
             m_see[i].m_c[0] = 20;
             m_see[i].m_c[1] = 20;
         }
+        see_01.m_c[0] = 0;
+        see_01.m_c[1] = 1;
     }
 
     inline see_model_t* current_see(sparse_model_t* o4) {
-        static const auto log2i = [](uint32_t x) {
-            return (31 - __builtin_clz((x << 1) | 0x01));
+        static const auto log2i = [](uint32_t x) -> int {
+            return (31 - clz((x << 1) | 0x01));
         };
 
         if (o4->m_cnt == 0) {
-            static see_model_t see_01 = {{0, 1}};
             return &see_01;  // no symbols under current context -- always escape
         }
         int curcnt = o4->m_cnt;
@@ -754,9 +792,10 @@ struct matcher_t {
  ******************************************************************************/
 #define MLEN_SIZE 64000
 
-int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
+int zmolly_encode(std::istream& fdata, std::ostream& fcomp0, int block_size) {
     ppm_model_t ppm;
     std::vector<unsigned char> ib;
+    std::stringstream fcomp;
 
     while (fdata) {
         uint8_t escape = 0;
@@ -777,13 +816,6 @@ int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
         int midx = 0;
         int mpos = 0;
 
-        // reserve output space for header:
-        //  stop-mark: 1
-        //  datasize:  4
-        //  compsize:  4
-        fcomp.seekp(+9, std::ios::cur);
-        uint64_t fcomp_block_start = fcomp.tellp();
-
         // count for escape char
         int counts[256] = {0};
         for(auto byte: ib) {
@@ -791,6 +823,8 @@ int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
                 escape = byte;
             }
         }
+
+        fcomp.str("");
         fcomp.put(escape);
 
         // start encoding
@@ -850,23 +884,29 @@ int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
         coder.flush();
 
         // write back headers
-        uint64_t fcomp_block_end = fcomp.tellp();
-        fcomp.seekp(fcomp_block_start - 9);
-        fcomp.put(1);
-        fcomp.put(ib.size() / 16777216 % 256);
-        fcomp.put(ib.size() / 65536 % 256);
-        fcomp.put(ib.size() / 256 % 256);
-        fcomp.put(ib.size() / 1 % 256);
-        fcomp.put((fcomp_block_end - fcomp_block_start) / 16777216 % 256);
-        fcomp.put((fcomp_block_end - fcomp_block_start) / 65536 % 256);
-        fcomp.put((fcomp_block_end - fcomp_block_start) / 256 % 256);
-        fcomp.put((fcomp_block_end - fcomp_block_start) / 1 % 256);
-        fcomp.seekp(fcomp_block_end);
-        fprintf(stderr, "encode-block: %d => %d\n", int(ib.size()), int(fcomp_block_end - fcomp_block_start));
-    }
-    fcomp.put(0);
+        //  stop-mark: 1
+        //  datasize:  4
+        //  compsize:  4
+        auto fcomp_size = fcomp.tellp();
+        fcomp0.put(1);
+        fcomp0.put(ib.size() / 16777216 % 256);
+        fcomp0.put(ib.size() / 65536 % 256);
+        fcomp0.put(ib.size() / 256 % 256);
+        fcomp0.put(ib.size() / 1 % 256);
+        fcomp0.put(fcomp_size / 16777216 % 256);
+        fcomp0.put(fcomp_size / 65536 % 256);
+        fcomp0.put(fcomp_size / 256 % 256);
+        fcomp0.put(fcomp_size / 1 % 256);
 
-    if (fcomp.bad() || fdata.bad()) {
+        // write block
+        fcomp0 << fcomp.rdbuf();
+        fcomp0.flush();
+
+        fprintf(stderr, "encode-block: %d => %d\n", int(ib.size()), int(fcomp_size));
+    }
+    fcomp0.put(0);
+
+    if (fcomp0.bad() || fdata.bad()) {
         fprintf(stderr, "error: I/O Error.");
         return -1;
     }

@@ -546,6 +546,7 @@ struct ppm_model_t {
     uint8_t m_sse_ch_context;
     uint8_t m_sse_last_esc;
     std::vector<see_model_t> m_see;
+    see_model_t see_01;
 
     ppm_model_t() {
         m_o4_buckets.resize(PPM_O4_BUCKET_SIZE);
@@ -562,6 +563,8 @@ struct ppm_model_t {
             m_see[i].m_c[0] = 20;
             m_see[i].m_c[1] = 20;
         }
+        see_01.m_c[0] = 0;
+        see_01.m_c[1] = 1;
     }
 
     inline see_model_t* current_see(sparse_model_t* o4) {
@@ -570,7 +573,6 @@ struct ppm_model_t {
         };
 
         if (o4->m_cnt == 0) {
-            static see_model_t see_01 = {{0, 1}};
             return &see_01;  // no symbols under current context -- always escape
         }
         int curcnt = o4->m_cnt;

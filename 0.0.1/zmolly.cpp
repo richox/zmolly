@@ -38,65 +38,6 @@
 #include <thread>
 
 /*******************************************************************************
- * Allocator
- ******************************************************************************/
-static const int ALLOCATOR_POOLSIZE = 8192;
-
-struct allocator_element_t {
-    allocator_element_t* m_next;
-};
-
-struct allocator_block_t {
-    allocator_block_t* m_next;
-    unsigned char m_data[0];
-
-    inline allocator_element_t* get_element(int nsize, int i) {
-        return (allocator_element_t*)(m_data + nsize * i);
-    }
-};
-
-struct allocator_t {
-    allocator_block_t* m_blocklist;
-    allocator_element_t* m_freelist;
-
-    allocator_t() {
-        m_blocklist = nullptr;
-        m_freelist = nullptr;
-    }
-    ~allocator_t() {
-        allocator_block_t* block;
-        while (m_blocklist) {
-            block = m_blocklist;
-            m_blocklist = m_blocklist->m_next;
-            free(block);
-        }
-    }
-
-    inline void* alloc(int nsize) {
-        if (!m_freelist) {  // freelist is empty, allocate more nodes
-            allocator_block_t* block = (allocator_block_t*)malloc(sizeof(*block) + nsize * ALLOCATOR_POOLSIZE);
-            block->m_next = m_blocklist;
-            block->get_element(nsize, 0)->m_next = nullptr;
-
-            for(auto i = 1; i < ALLOCATOR_POOLSIZE; i++) {
-                block->get_element(nsize, i)->m_next = block->get_element(nsize, i - 1);
-            }
-            m_blocklist = block;
-            m_freelist = block->get_element(nsize, ALLOCATOR_POOLSIZE - 1);
-        }
-        allocator_element_t* node = m_freelist;
-        m_freelist = m_freelist->m_next;
-        return (void*)node;
-    }
-
-    inline void free(void* node) {
-        allocator_element_t* element = (allocator_element_t*)node;
-        element->m_next = m_freelist;
-        m_freelist = element;
-    }
-};
-
-/*******************************************************************************
  * Arithmetic coder
  ******************************************************************************/
 static const uint32_t RC_TOP = 1 << 24;
@@ -227,7 +168,7 @@ struct dense_model_t {  // dense model types, use for short context
         uint16_t esc = 0;
         uint16_t recent_frq = m_symbols[0].m_frq & -!exclude[m_symbols[0].m_sym];
         if (!exclude.any()) {
-            for(auto i = 0; i < m_cnt; i++) {  // no exclusion
+            for(int i = 0; i < m_cnt; i++) {  // no exclusion
                 if (m_symbols[i].m_sym == c) {
                     found_index = i;
                     found = 1;
@@ -237,12 +178,12 @@ struct dense_model_t {  // dense model types, use for short context
             }
             sum = m_sum;
         } else {
-            for(auto i = 0; i < m_cnt; i++) {
+            for(int i = 0; i < m_cnt; i++) {
                 if (m_symbols[i].m_sym == c) {
                     found_index = i;
                     found = 1;
                 }
-                cum += m_symbols[i].m_frq & -(!exclude[m_symbols[i].m_sym] && !found);
+                cum += m_symbols[i].m_frq & -(!exclude[m_symbols[i].m_sym] & !found);
                 sum += m_symbols[i].m_frq & -(!exclude[m_symbols[i].m_sym]);
             }
         }
@@ -258,7 +199,7 @@ struct dense_model_t {  // dense model types, use for short context
         }
 
         if (!found) {
-            for(auto i = 0; i < m_cnt; i++) {  // do exclude
+            for(int i = 0; i < m_cnt; i++) {  // do exclude
                 exclude[m_symbols[i].m_sym] = 1;
             }
             m_symbols[m_cnt].m_frq = m_symbols[0].m_frq;
@@ -281,14 +222,14 @@ struct dense_model_t {  // dense model types, use for short context
         uint16_t recent_frq = m_symbols[0].m_frq & -!exclude[m_symbols[0].m_sym];
         int sym = -1;
 
-        for(auto i = 0; i < m_cnt; i++) {
+        for(int i = 0; i < m_cnt; i++) {
             sum += m_symbols[i].m_frq & -!exclude[m_symbols[i].m_sym];
         }
         esc = m_esc + !m_esc;
         sum += recent_frq + esc;
         uint16_t decode_cum = coder->decode_cum(sum);
         if (sum - esc <= decode_cum) {
-            for(auto i = 0; i < m_cnt; i++) {  // do exclude
+            for(int i = 0; i < m_cnt; i++) {  // do exclude
                 exclude[m_symbols[i].m_sym] = 1;
             }
             m_symbols[m_cnt].m_frq = m_symbols[0].m_frq;
@@ -334,7 +275,7 @@ struct dense_model_t {  // dense model types, use for short context
             m_cnt = 0;
             m_sum = 0;
             m_esc = 0;
-            for(auto i = 0; i + n < 256; i++) {
+            for(int i = 0; i + n < 256; i++) {
                 if ((m_symbols[i].m_frq = m_symbols[i + n].m_frq / 2) > 0) {
                     m_symbols[i].m_sym = m_symbols[i + n].m_sym;
                     m_cnt += 1;
@@ -439,7 +380,7 @@ struct sparse_model_t {  // sparse model types, use for long context
 
         } else {  // not found
             see->update(1, 35);
-            for(auto i = 0; i < m_cnt; i++) {
+            for(int i = 0; i < m_cnt; i++) {
                 exclude[m_symbols[i].m_sym] = 1;  // exclude o4
             }
             if (m_cnt == PPM_SPARSE_MODEL_SYMBOLS) {
@@ -458,7 +399,7 @@ struct sparse_model_t {  // sparse model types, use for long context
         int o2frq = 0;
 
         if (m_symbols[0].m_frq == 0) {  // calculate init frequency
-            for(auto i = 0; i < lower_o2->m_cnt; i++) {
+            for(int i = 0; i < lower_o2->m_cnt; i++) {
                 if (lower_o2->m_symbols[i].m_sym == c) {
                     o2frq = lower_o2->m_symbols[i].m_frq;
                     break;
@@ -483,7 +424,7 @@ struct sparse_model_t {  // sparse model types, use for long context
         if (m_symbols[0].m_frq > 250) {  // rescale
             m_cnt = 0;
             m_sum = 0;
-            for(auto i = 0; i + n < 56; i++) {
+            for(int i = 0; i + n < 56; i++) {
                 if ((m_symbols[i].m_frq = m_symbols[i + n].m_frq / 2) > 0) {
                     m_symbols[i].m_sym = m_symbols[i + n].m_sym;
                     m_cnt += 1;
@@ -505,7 +446,6 @@ struct ppm_model_t {
     std::vector<dense_model_t> m_o2;
     std::vector<dense_model_t> m_o1;
     std::vector<dense_model_t> m_o0;
-    allocator_t m_o4_allocator;
     uint32_t m_o4_counts;
     uint32_t m_context;
     uint8_t m_sse_ch_context;
@@ -523,7 +463,7 @@ struct ppm_model_t {
         m_see.resize(PPM_SEE_SIZE);
         m_sse_ch_context = 0;
         m_sse_last_esc = 0;
-        for (auto i = 0; i < PPM_SEE_SIZE; i++) {
+        for (int i = 0; i < PPM_SEE_SIZE; i++) {
             m_see[i].m_c[0] = 20;
             m_see[i].m_c[1] = 20;
         }
@@ -531,7 +471,7 @@ struct ppm_model_t {
 
     inline see_model_t* current_see(sparse_model_t* o4) {
         static const auto log2i = [](uint32_t x) {
-            return (31 - __builtin_clz((x << 1) | 0x01));
+            return 31 - __builtin_clz((x << 1) | 0x01);
         };
 
         if (o4->m_cnt == 0) {
@@ -569,23 +509,23 @@ struct ppm_model_t {
 
     inline sparse_model_t* current_o4() {
         static const auto o4_hash = [](uint32_t context) {
-            return (context ^ context >> 14) % PPM_O4_BUCKET_SIZE;
+            return ((context >> 16) * 13131 + context) % PPM_O4_BUCKET_SIZE;
         };
         sparse_model_t* o4 = nullptr;
         sparse_model_t* o4_prev = nullptr;
 
         if (m_o4_counts >= 1048576) {  // too many o4-context/symbol nodes
             m_o4_counts = 0;
-            for(auto i = 0; i < PPM_O4_BUCKET_SIZE; i++) {
+            for(int i = 0; i < PPM_O4_BUCKET_SIZE; i++) {
                 while (m_o4_buckets[i] && m_o4_buckets[i]->m_visited / 2 == 0) {
                     o4 = m_o4_buckets[i];
                     m_o4_buckets[i] = m_o4_buckets[i]->m_next;
-                    m_o4_allocator.free(o4);
+                    delete o4;
                 }
                 for(o4 = m_o4_buckets[i]; o4 != nullptr; o4 = o4->m_next) {
                     if ((o4->m_visited /= 2) == 0) {
                         o4_prev->m_next = o4->m_next;
-                        m_o4_allocator.free(o4);
+                        delete o4;
                         o4 = o4_prev;
                     } else {
                         m_o4_counts += 1;
@@ -595,7 +535,8 @@ struct ppm_model_t {
             }
         }
 
-        o4 = m_o4_buckets[o4_hash(m_context)];
+        int o4_bucket_idx = o4_hash(m_context);
+        o4 = m_o4_buckets[o4_bucket_idx];
         o4_prev = nullptr;
         while (o4 && o4->m_context != m_context) {  // search for o4 context
             o4_prev = o4;
@@ -604,19 +545,15 @@ struct ppm_model_t {
         if (o4 != nullptr) {  // found -- bring to front of linked-list
             if (o4_prev != nullptr) {
                 o4_prev->m_next = o4->m_next;
-                o4->m_next = m_o4_buckets[o4_hash(m_context)];
-                m_o4_buckets[o4_hash(m_context)] = o4;
+                o4->m_next = m_o4_buckets[o4_bucket_idx];
+                m_o4_buckets[o4_bucket_idx] = o4;
             }
         } else {  // not found -- create new node for context
-            o4 = (sparse_model_t*)m_o4_allocator.alloc(sizeof(sparse_model_t));
-            memset(o4->m_symbols, 0, sizeof(o4->m_symbols));
+            o4 = new sparse_model_t();
             o4->m_context = m_context;
-            o4->m_sum = 0;
-            o4->m_cnt = 0;
-            o4->m_visited = 0;
-            o4->m_next = m_o4_buckets[o4_hash(m_context)];
+            o4->m_next = m_o4_buckets[o4_bucket_idx];
             m_o4_counts += 1;
-            m_o4_buckets[o4_hash(m_context)] = o4;
+            m_o4_buckets[o4_bucket_idx] = o4;
         }
         o4->m_visited += (o4->m_visited < 255);
         return o4;
@@ -640,7 +577,7 @@ struct ppm_model_t {
 
             // decode with o(-1)
             uint16_t cum = 0;
-            for(auto i = 0; i < c; i++) {
+            for(int i = 0; i < c; i++) {
                 cum += !exclude[i];
             }
             coder->encode(cum, 1, 256 - exclude.count());
@@ -710,20 +647,23 @@ struct matcher_t {
         return *(uint16_t*)data;
     }
     inline static uint32_t hash5(unsigned char* data) {
-        return (*(uint32_t*)data ^ (*(uint32_t*)data >> 10) ^ (*(uint32_t*)data >> 20)) & 0xfffff;
+        return (*(uint32_t*)data * 13131 + (*(uint32_t*)data >> 10) * 131 + (*(uint32_t*)data >> 20)) & 0xfffff;
     }
     inline static uint32_t hash8(unsigned char* data) {
-        return (*(uint64_t*)data ^ (*(uint64_t*)data >> 22) ^ (*(uint64_t*)data >> 44)) & 0xfffff;
+        return (*(uint64_t*)data * 13131 + (*(uint64_t*)data >> 22) * 131 + (*(uint64_t*)data >> 44)) & 0xfffff;
     }
 
     inline uint32_t getpos(unsigned char* data, uint32_t pos) {
-        uint32_t lzpos[3] = {
-            (uint32_t)(m_lzp[hash8(data + pos - 8)] & 0xffffffff),
-            (uint32_t)(m_lzp[hash5(data + pos - 5)] & 0xffffffff),
-        };
-        if (m_lzp[hash8(data + pos - 8)] >> 32 == *(uint32_t*)(data + pos - 4) && lzpos[0] != 0) return lzpos[0];
-        if (m_lzp[hash5(data + pos - 5)] >> 32 == *(uint32_t*)(data + pos - 4) && lzpos[1] != 0) return lzpos[1];
-        return m_lzp[hash2(data + pos - 2)];
+        if (pos >= 8) {
+            uint32_t lzpos[3] = {
+                (uint32_t)(m_lzp[hash8(data + pos - 8)] & 0xffffffff),
+                (uint32_t)(m_lzp[hash5(data + pos - 5)] & 0xffffffff),
+            };
+            if (m_lzp[hash8(data + pos - 8)] >> 32 == *(uint32_t*)(data + pos - 4) && lzpos[0] != 0) return lzpos[0];
+            if (m_lzp[hash5(data + pos - 5)] >> 32 == *(uint32_t*)(data + pos - 4) && lzpos[1] != 0) return lzpos[1];
+            return m_lzp[hash2(data + pos - 2)];
+        }
+        return 0;
     }
 
     inline uint32_t lookup(unsigned char* data, uint32_t data_size, uint32_t pos) {
@@ -741,8 +681,8 @@ struct matcher_t {
 
     inline void update(unsigned char* data, uint32_t pos) {
         if (pos >= 8) {  // avoid overflow
-            m_lzp[hash8(data + pos - 8)] = pos | (uint64_t)*(uint32_t*)(data + pos - 4) << 32;
-            m_lzp[hash5(data + pos - 5)] = pos | (uint64_t)*(uint32_t*)(data + pos - 4) << 32;
+            m_lzp[hash8(data + pos - 8)] = pos | (uint64_t) *(uint32_t*) (data + pos - 4) << 32;
+            m_lzp[hash5(data + pos - 5)] = pos | (uint64_t) *(uint32_t*) (data + pos - 4) << 32;
             m_lzp[hash2(data + pos - 2)] = pos;
         }
         return;
@@ -752,14 +692,13 @@ struct matcher_t {
 /*******************************************************************************
  * Codec
  ******************************************************************************/
-#define MLEN_SIZE 64000
+static const int MLEN_SIZE = 32000;
 
 int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
     ppm_model_t ppm;
     std::vector<unsigned char> ib;
 
     while (fdata) {
-        uint8_t escape = 0;
 
         // read next block
         ib.resize(block_size);
@@ -771,12 +710,6 @@ int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
         ib.resize(fdata.gcount());
         int ibpos = 0;
 
-        std::thread thread;
-        int mselect = 0;
-        int mlen[2][MLEN_SIZE];
-        int midx = 0;
-        int mpos = 0;
-
         // reserve output space for header:
         //  stop-mark: 1
         //  datasize:  4
@@ -785,11 +718,12 @@ int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
         uint64_t fcomp_block_start = fcomp.tellp();
 
         // count for escape char
-        int counts[256] = {0};
-        for(auto byte: ib) {
-            if (++counts[byte] < counts[escape]) {
-                escape = byte;
-            }
+        int counts[256] = {};
+        std::for_each(ib.begin(), ib.end(), [&](auto c) { counts[c]++; });
+
+        int escape = 0;
+        for (int i = 1; i < 256; i++) {
+            escape = counts[escape] < counts[i] ? escape : i;
         }
         fcomp.put(escape);
 
@@ -797,37 +731,43 @@ int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
         matcher_t matcher;
         rc_encoder_t coder(fcomp);
 
-        auto func_matching_thread = [&](int* mlen) {
-            int match_len;
-            int midx = 0;
+        std::thread thread;
+        int thread_idx = 0;
+        int threaded_match_lens[2][MLEN_SIZE];
+        int match_idx = 0;
+        int match_pos = 0;
 
-            while (mpos < int(ib.size()) && midx < MLEN_SIZE) {
-                match_len = 1;
+        auto func_matching_thread = [&](int* match_lens) {
+            int match_idx = 0;
+
+            while (match_pos < int(ib.size()) && match_idx < MLEN_SIZE) {
+                int match_len = 1;
+
                 // find a match -- avoid overflow
-                if (mpos + matcher_t::match_max < int(ib.size())) {
-                    match_len = matcher.lookup(ib.data(), ib.size(), mpos);
-                    for(auto i = 0; i < match_len; i++) {
-                        matcher.update(ib.data(), mpos + i);
+                if (match_pos + matcher_t::match_max < int(ib.size())) {
+                    match_len = matcher.lookup(ib.data(), ib.size(), match_pos);
+                    for(int i = 0; i < match_len; i++) {
+                        matcher.update(ib.data(), match_pos);
+                        match_pos += 1;
                     }
                 }
-                mpos += match_len;
-                mlen[midx++] = match_len;
+                match_lens[match_idx++] = match_len;
             }
         };
 
         // start thread (matching first block)
-        thread = std::thread(func_matching_thread, mlen[0]); thread.join();
-        thread = std::thread(func_matching_thread, mlen[1]);
+        thread = std::thread(func_matching_thread, threaded_match_lens[0]); thread.join();
+        thread = std::thread(func_matching_thread, threaded_match_lens[1]);
 
         while (ibpos < int(ib.size())) {
             // find match
-            if (midx >= MLEN_SIZE) {  // start the next matching thread
+            if (match_idx >= MLEN_SIZE) {  // start the next matching thread
                 thread.join();
-                thread = std::thread(func_matching_thread, mlen[mselect]);
-                midx = 0;
-                mselect ^= 1;
+                thread = std::thread(func_matching_thread, threaded_match_lens[thread_idx]);
+                match_idx = 0;
+                thread_idx ^= 1;
             }
-            int match_len = mlen[mselect][midx++];
+            int match_len = threaded_match_lens[thread_idx][match_idx++];
 
             if (match_len > 1) {  // encode a match
                 ppm.encode(&coder, escape);
@@ -842,7 +782,7 @@ int zmolly_encode(std::istream& fdata, std::ostream& fcomp, int block_size) {
                     ppm.encode(&coder, 0);
                 }
             }
-            for(auto i = 0; i < match_len; i++) {  // update context
+            for(int i = 0; i < match_len; i++) {  // update context
                 ppm.update_context(ib[ibpos++]);
             }
         }
@@ -878,12 +818,9 @@ int zmolly_decode(std::istream& fcomp, std::ostream& fdata) {
     std::vector<unsigned char> ob;
 
     while (fcomp.get() == 1) {
-        uint8_t escape;
-        uint8_t c;
-
         // read header
-        int datasize = 0;
-        int compsize = 0;
+        uint32_t datasize = 0;
+        uint32_t compsize = 0;
         datasize += (unsigned char)fcomp.get() * 16777216;
         datasize += (unsigned char)fcomp.get() * 65536;
         datasize += (unsigned char)fcomp.get() * 256;
@@ -892,7 +829,7 @@ int zmolly_decode(std::istream& fcomp, std::ostream& fdata) {
         compsize += (unsigned char)fcomp.get() * 65536;
         compsize += (unsigned char)fcomp.get() * 256;
         compsize += (unsigned char)fcomp.get() * 1;
-        escape = fcomp.get();
+        uint8_t escape = fcomp.get();
 
         ob.resize(datasize);
         int obpos = 0;
@@ -904,6 +841,8 @@ int zmolly_decode(std::istream& fcomp, std::ostream& fdata) {
         while (obpos < int(ob.size())) {
             int match_pos = 0;
             int match_len = 1;
+            int c;
+
             if ((c = ppm.decode(&coder)) != escape) {
                 // literal
                 ob[obpos] = c;
@@ -915,13 +854,13 @@ int zmolly_decode(std::istream& fcomp, std::ostream& fdata) {
                     ob[obpos] = escape;
                 } else {  // match
                     match_pos = matcher.getpos(ob.data(), obpos);
-                    for(auto i = 0; i < match_len; i++) {
+                    for(int i = 0; i < match_len; i++) {
                         ob[obpos + i] = ob[match_pos + i];
                     }
                     ppm.m_sse_last_esc = 0;
                 }
             }
-            for (auto i = 0; i < match_len; i++) {  // update context
+            for (int i = 0; i < match_len; i++) {  // update context
                 ppm.update_context(ob[obpos]);
                 matcher.update(ob.data(), obpos);
                 obpos++;
@@ -941,34 +880,22 @@ void display_help_message_and_die() {
     fprintf(stderr, "  simple LZP/PPM data compressor.\n");
     fprintf(stderr, "  author: Zhang Li <richselian@gmail.com>\n");
     fprintf(stderr, "usage:\n");
-    fprintf(stderr, "  encode: zmolly [-bx] -e inputFile outputFile\n");
-    fprintf(stderr, "  decode: zmolly       -d inputFile outputFile\n");
-    fprintf(stderr, "  x: [1..99] optional block size (MB)\n");
+    fprintf(stderr, "  encode: zmolly e inputFile outputFile\n");
+    fprintf(stderr, "  decode: zmolly d inputFile outputFile\n");
     exit(-1);
 }
 
 int main(int argc, char** argv) {
-    int block_size = 16777216;  // default
+    static const int block_size = 16777216;  // default
     int mode = 0;
-
-    // optional argument: -b
-    if (argc > 1 && strncmp(argv[1], "-b", 2) == 0) {
-        block_size = 1048576 * atoi(argv[1] + 2);
-        if (block_size <= 0 || block_size > 1048576 * 99) {  // valid blocksize = 1..99 MB
-            fprintf(stderr, "error: invalid block size: %s.\n", argv[1]);
-            display_help_message_and_die();
-        }
-        argc -= 1;
-        memmove(&argv[1], &argv[2], (argc - 1) * sizeof(char*));
-    }
 
     // get mode
     if (argc != 4) {
         fprintf(stderr, "error: invalid number of arguments.\n");
         display_help_message_and_die();
     }
-    if (strcmp(argv[1], "-e") == 0) mode = 'e';
-    if (strcmp(argv[1], "-d") == 0) mode = 'd';
+    if (strcmp(argv[1], "e") == 0) mode = 'e';
+    if (strcmp(argv[1], "d") == 0) mode = 'd';
     if (mode == 0) {
         fprintf(stderr, "error: invalid mode: %s.\n", argv[1]);
         display_help_message_and_die();

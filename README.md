@@ -13,4 +13,4 @@ bzip2             | 29009 KB        |
 xz                | 26376 KB        |
 xz --extreme      | 26366 KB        |
 uharc -mx md32768 | 23919 KB        |
-zmolly -b99       | 23516 KB        |
+zmolly            | 22525 KB        |

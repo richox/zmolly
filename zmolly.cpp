@@ -856,14 +856,14 @@ int main(int argc, char** argv) {
     }
 
     // open input file
-    auto fin = std::ifstream(std::string() + argv[2], std::ios::in | std::ios::binary);
+    std::ifstream fin(argv[2], std::ios::in | std::ios::binary);
     fin.exceptions(std::ios_base::failbit);
     if (!fin.is_open()) {
         throw std::runtime_error(std::string() + "cannot open input file: " + argv[2]);
     }
 
     // open output file
-    auto fout = std::ofstream(argv[3], std::ios::out | std::ios::binary);
+    std::ofstream fout(argv[3], std::ios::out | std::ios::binary);
     fin.exceptions(std::ios_base::failbit);
     if (!fout.is_open()) {
         throw std::runtime_error(std::string() + "cannot open output file: " + argv[3]);
